@@ -1,7 +1,7 @@
 export const config = {
   liquidity_pool: {
     ignore_pump_fun: true,
-    radium_program_id: "675kPX9MHTJ5zzt1qfr1NyHuzelXFQ9MH24wFSUt1Mp8",
+    radium_program_id: "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
     wsol_pc_mint: "So11111111111111111111111111111111111111112",
   },
   tx: {
