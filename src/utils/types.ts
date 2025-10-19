@@ -51,3 +51,46 @@ export interface RugResponse {
   score: number;
   risks: RiskItem[];
 }
+
+// Token holder type
+export interface TokenHolder {
+  address: string;
+  pct: number;
+  insider: boolean;
+}
+
+// Market type
+export interface Market {
+  liquidityA?: string;
+  liquidityB?: string;
+  liquidity?: number;
+}
+
+// Extended rug response with all necessary fields
+export interface RugResponseExtended {
+  score: number;
+  risks: RiskItem[];
+  rugged: boolean;
+  creator?: string;
+  token: {
+    mintAuthority: string | null;
+    freezeAuthority: string | null;
+    isInitialized: boolean;
+  };
+  tokenMeta: {
+    name: string;
+    symbol: string;
+    mutable: boolean;
+  };
+  topHolders: TokenHolder[];
+  markets?: Market[];
+  totalLPProviders: number;
+}
+
+// New token record type for tracking
+export interface NewTokenRecord {
+  time: number;
+  mint: string;
+  name: string;
+  creator: string;
+}

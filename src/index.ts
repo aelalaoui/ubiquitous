@@ -1,155 +1,240 @@
 import WebSocket from "ws"; // Node.js websocket library
-import dotenv from "dotenv"; // zero-dependency module that loads environment variables from a .env
-import { WebSocketRequest } from "./types"; // Typescript types for type safety
-import { config } from "./config"; // Configuration parameters for our bot
-import { fetchTransactionDetails, createSwapTransaction, getRugCheckConfirmed } from "./transactions";
+import { validateEnv } from "./utils/env-validator";
+import { config } from "./config";
+import { WebSocketManager, ConnectionState } from "./utils/managers/websocketManager";
+import { getMintFromSignature } from "./utils/handlers/signatureHandler";
+import { getTokenAuthorities, TokenAuthorityStatus } from "./utils/handlers/tokenHandler";
+import { buyToken } from "./utils/handlers/sniperooHandler";
+import { getRugCheckConfirmed } from "./utils/handlers/rugCheckHandler";
+import { playSound } from "./utils/notification";
 
-// Load environment variables from the .env file
-dotenv.config();
+// Regional Variables
+let activeTransactions = 0;
+const MAX_CONCURRENT = config.concurrent_transactions;
+const CHECK_MODE = config.checks.mode || "full";
+const BUY_PROVIDER = config.token_buy.provider;
+const BUY_AMOUNT = config.token_buy.sol_amount;
+const SUBSCRIBE_LP = config.liquidity_pool;
+const SIM_MODE = config.checks.simulation_mode || false;
+const PLAY_SOUND = config.token_buy.play_sound || false;
 
-// Add production logging
-console.log(`[${new Date().toISOString()}] 🚀 Solana Trading Bot starting...`);
-console.log(`[${new Date().toISOString()}] 🔗 Environment: ${process.env.NODE_ENV || 'development'}`);
+// Sell Options
+const SELL_ENABLED = config.token_sell.enabled || false;
+const SELL_STOP_LOSS = config.token_sell.stop_loss_percent || 15;
+const SELL_TAKE_PROFIT = config.token_sell.take_profit_percent || 50;
 
-// Heartbeat for monitoring (every 5 minutes)
-setInterval(() => {
-  console.log(`[${new Date().toISOString()}] 💓 Bot heartbeat - Active and listening`);
-}, 300000);
+// Function used to handle the transaction once a new pool creation is found
+async function processTransaction(signature: string): Promise<void> {
+    console.log("=========================================");
+    console.log("🆕 [Process Transaction] New Liquidity Pool signature found");
+    console.log("🔍 [Process Transaction] Extracting token CA from signature...\n");
+    console.log("https://solscan.io/tx/" + signature);
 
-// Function used to open our websocket connection
-function sendRequest(ws: WebSocket): void {
-  const request: WebSocketRequest = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "logsSubscribe",
-    params: [
-      {
-        mentions: [config.liquidity_pool.radium_program_id],
-      },
-      {
-        commitment: "processed", // Can use finalized to be more accurate.
-      },
-    ],
-  };
+    /**
+     * Extract the token CA from the transaction signature
+     */
+    const returnedMint = await getMintFromSignature(signature);
+    if (!returnedMint) {
+        console.log("❌ [Process Transaction] No valid token CA could be extracted");
+        console.log("🔁 [Process Transaction] Looking for new Liquidity Pools again\n");
+        return;
+    }
 
-  ws.send(JSON.stringify(request));
-}
+    console.log("✅ [Process Transaction] Token CA extracted successfully");
 
-async function websocketHandler(): Promise<void> {
-  // Create a WebSocket connection
-  let ws: WebSocket | null = new WebSocket(process.env.HELIUS_WSS_URI || "");
-  let transactionOngoing = false;
+    /**
+     * Perform checks based on selected level of rug check
+     */
+    if (CHECK_MODE == "snipe") {
+        console.log(`🔎 [Process Transaction] Performing ${CHECK_MODE} check`);
+        const tokenAuthorityStatus: TokenAuthorityStatus = await getTokenAuthorities(returnedMint);
+        if (!tokenAuthorityStatus.isSecure) {
+            /**
+             * Token is not secure, check if we should skip based on preferences
+             */
+            const allowMintAuthority = config.checks.settings.allow_mint_authority || false;
+            const allowFreezeAuthority = config.checks.settings.allow_freeze_authority || false;
 
-  // Send subscription to the websocket once the connection is open
-  ws.on("open", () => {
-    if (ws) sendRequest(ws); // Send a request once the WebSocket is open
-    console.log("WebSocket is open and listening.");
-  });
+            if (!allowMintAuthority && tokenAuthorityStatus.hasMintAuthority) {
+                console.log("❌ [Process Transaction] Token has mint authority, skipping...");
+                console.log("🔁 [Process Transaction] Looking for new Liquidity Pools again\n");
+                return;
+            }
 
-  // Logic for the message event for the .on event listener
-  ws.on("message", async (data: WebSocket.Data) => {
-    try {
-      const jsonString = data.toString(); // Convert data to a string
-      const parsedData = JSON.parse(jsonString); // Parse the JSON string
-
-      //  console.log(parsedData);
-
-      // Safely access the nested structure
-      const logs = parsedData?.params?.result?.value?.logs;
-      const signature = parsedData?.params?.result?.value?.signature;
-
-       console.log(logs);
-
-      // Validate 'logs' is an array
-      if (Array.isArray(logs)) {
-        const containsCreate = logs.some((log: string) =>
-            typeof log === "string"
-            && (
-                log.includes("Program log: initialize2")
-                || log.includes("Program log: Create pool")
-                || log.includes("Program log: Add liquidity")
-            )
-        );
-
-          //console.log(containsCreate);
-
-        if (!containsCreate || typeof signature !== "string") return;
-
-        // Stop the websocket from listening and restarting
-        transactionOngoing = true;
-        if (ws) ws.close(1000, "Handling transactions.");
-
-        // Output logs
-        console.log("====================================");
-        console.log(" New Liquidity Pool found.");
-        console.log(" Pause Websocket to handle transaction.");
-
-        // Fetch the transaction details
-        console.log(" Fetching transaction details ...");
-        const data = await fetchTransactionDetails(signature);
-
-        // Abort and restart socket
-        if (!data) {
-          console.log("🛑 No transaction data found. Restarting websocket...");
-          return websocketHandler();
+            if (!allowFreezeAuthority && tokenAuthorityStatus.hasFreezeAuthority) {
+                console.log("❌ [Process Transaction] Token has freeze authority, skipping...");
+                console.log("🔁 [Process Transaction] Looking for new Liquidity Pools again\n");
+                return;
+            }
         }
-
-        // Ensure required data is available
-        if (!data.solMint || !data.tokenMint) {
-          console.log("🛑 Missing solMint or tokenMint. Restarting websocket...");
-          return websocketHandler();
+    } else if (CHECK_MODE === "full") {
+        /**
+         * Perform full check
+         */
+        if (returnedMint.trim().toLowerCase().endsWith("pump") && config.checks.settings.ignore_ends_with_pump) {
+            console.log("❌ [Process Transaction] Token ends with pump, skipping...");
+            console.log("🔁 [Process Transaction] Looking for new Liquidity Pools again\n");
+            return;
         }
 
         // Check rug check
-        const isRugCheckPassed = await getRugCheckConfirmed(data.tokenMint);
+        const isRugCheckPassed = await getRugCheckConfirmed(returnedMint);
         if (!isRugCheckPassed) {
-          console.log("🛑 Rug Check not passed! Transaction aborted.");
-          console.log("=========================================");
-          return websocketHandler();
+            console.log("❌ [Process Transaction] Full rug check not passed, skipping...");
+            console.log("🔁 [Process Transaction] Looking for new Liquidity Pools again\n");
+            return;
         }
-
-        // Handle ignored tokens
-        if (data.tokenMint.trim().toLowerCase().endsWith("pump") && config.liquidity_pool.ignore_pump_fun) {
-          // Check if ignored
-          console.log("🛑 Transaction skipped. Ignoring Pump.fun.");
-          console.log("=========================================");
-          return websocketHandler();
-        }
-
-        console.log(" Token found: https://gmgn.ai/sol/token/" + data.tokenMint);
-        const tx = await createSwapTransaction(data.solMint, data.tokenMint);
-
-        // Abort and restart socket
-        if (!tx) {
-          console.log("🛑 Transaction aborted. No valid swap quote received.");
-          return websocketHandler();
-        }
-
-        if (tx) {
-          console.log("✅ Swap quote recieved.");
-          console.log("🔁 Swapping SOL for Token.");
-          console.log("Swap Transaction: ", tx);
-          console.log("=========================================");
-          // Start Websocket to listen for new tokens
-          return websocketHandler();
-        }
-      }
-    } catch (error) {
     }
-  });
 
-  ws.on("error", (err: Error) => {
-    console.error("Websocket error:", err)
-  });
+    /**
+     * Perform Swap Transaction
+     */
+    if (BUY_PROVIDER === "sniperoo" && !SIM_MODE) {
+        console.log("🎯 [Process Transaction] Sniping token using Sniperoo...");
+        const result = await buyToken(returnedMint, BUY_AMOUNT, SELL_ENABLED, SELL_TAKE_PROFIT, SELL_STOP_LOSS);
+        if (!result) {
+            console.log("❌ [Process Transaction] Token not swapped. Sniperoo failed.");
+            console.log("🔁 [Process Transaction] Looking for new Liquidity Pools again\n");
+            return;
+        }
 
-  ws.on("close", () => {
-    // Connection closed, discard old websocket and create a new one in 5 seconds
-    ws = null;
-    if (!transactionOngoing) {
-      console.log("WebSocket is closed. Restarting in 5 seconds...");
-      setTimeout(websocketHandler, 5000);
+        if (PLAY_SOUND) playSound();
+        console.log("✅ [Process Transaction] Token swapped successfully using Sniperoo");
     }
-  });
+
+    /**
+     * Check if Simulation Mode is enabled in order to output the warning
+     */
+    if (SIM_MODE) console.log("⚠️ [Process Transaction] Token not swapped! Simulation Mode turned on.");
+
+    /**
+     * Output token mint address
+     */
+    console.log("🪙 GMGN:", `https://gmgn.ai/sol/token/` + returnedMint);
+    console.log("🪙 BullX:", `https://neo.bullx.io/terminal?chainId=1399811149&address=` + returnedMint);
 }
 
-websocketHandler();
+// Main function to start the application
+async function main(): Promise<void> {
+    console.clear();
+    console.log("🚀 Starting Solana Token Sniper...");
+
+    // Load environment variables from the .env file
+    const env = validateEnv();
+
+    // Create WebSocket manager
+    const wsManager = new WebSocketManager({
+        url: env.HELIUS_WSS_URI,
+        initialBackoff: 1000,
+        maxBackoff: 30000,
+        maxRetries: Infinity,
+        debug: true,
+    });
+
+    // Set up event handlers
+    wsManager.on("open", () => {
+        /**
+         * Create a new subscription request for each program ID
+         */
+        SUBSCRIBE_LP.filter((pool) => pool.enabled).forEach((pool) => {
+            const subscriptionMessage = {
+                jsonrpc: "2.0",
+                id: pool.id,
+                method: "logsSubscribe",
+                params: [
+                    {
+                        mentions: [pool.program],
+                    },
+                    {
+                        commitment: "processed", // Can use finalized to be more accurate.
+                    },
+                ],
+            };
+
+            wsManager.send(JSON.stringify(subscriptionMessage));
+        });
+    });
+
+    wsManager.on("message", async (data: WebSocket.Data) => {
+        try {
+            const jsonString = data.toString(); // Convert data to a string
+            const parsedData = JSON.parse(jsonString); // Parse the JSON string
+
+            // Handle subscription response
+            if (parsedData.result !== undefined && !parsedData.error) {
+                console.log("✅ Subscription confirmed");
+                return;
+            }
+
+            // Only log RPC errors for debugging
+            if (parsedData.error) {
+                console.error("🚫 RPC Error:", parsedData.error);
+                return;
+            }
+
+            // Safely access the nested structure
+            const logs = parsedData?.params?.result?.value?.logs;
+            const signature = parsedData?.params?.result?.value?.signature;
+
+            // Validate `logs` is an array and if we have a signature
+            if (!Array.isArray(logs) || !signature) return;
+
+            // Verify if this is a new pool creation
+            const liquidityPoolInstructions = SUBSCRIBE_LP.filter((pool) => pool.enabled).map((pool) => pool.instruction);
+            const containsCreate = logs.some((log: string) => typeof log === "string" && liquidityPoolInstructions.some((instruction) => log.includes(instruction)));
+
+            if (!containsCreate || typeof signature !== "string") return;
+
+            // Verify if we have reached the max concurrent transactions
+            if (activeTransactions >= MAX_CONCURRENT) {
+                console.log("⏳ Max concurrent transactions reached, skipping...");
+                return;
+            }
+
+            // Add additional concurrent transaction
+            activeTransactions++;
+
+            // Process transaction asynchronously
+            processTransaction(signature)
+                .catch((error) => {
+                    console.error("Error processing transaction:", error);
+                })
+                .finally(() => {
+                    activeTransactions--;
+                });
+        } catch (error) {
+            console.error("❗ Error processing message:", {
+                error: error instanceof Error ? error.message : "Unknown error",
+                timestamp: new Date().toISOString(),
+            });
+        }
+    });
+
+    wsManager.on("error", (error: Error) => {
+    });
+
+    wsManager.on("state_change", (state: ConnectionState) => {
+    });
+
+    // Start the connection
+    wsManager.connect();
+
+    // Handle application shutdown
+    process.on("SIGINT", () => {
+        console.log("Shutting down...");
+        wsManager.disconnect();
+        process.exit(0);
+    });
+
+    process.on("SIGTERM", () => {
+        console.log("Shutting down...");
+        wsManager.disconnect();
+        process.exit(0);
+    });
+}
+
+// Start the application
+main().catch((err) => {
+    console.error("Fatal error:", err);
+    process.exit(1);
+});
