@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: solana-trading-bot
+    env: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PRIV_KEY_WALLET
+        sync: false
+      - key: HELIUS_HTTPS_URI
+        sync: false
+      - key: HELIUS_WSS_URI
+        sync: false
+      - key: HELIUS_HTTPS_URI_TX
+        sync: false
+      - key: JUP_HTTPS_QUOTE_URI
+        value: https://quote-api.jup.ag/v6/quote
+      - key: JUP_HTTPS_SWAP_URI
+        value: https://quote-api.jup.ag/v6/swap
+

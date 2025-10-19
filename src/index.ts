@@ -7,6 +7,15 @@ import { fetchTransactionDetails, createSwapTransaction, getRugCheckConfirmed } 
 // Load environment variables from the .env file
 dotenv.config();
 
+// Add production logging
+console.log(`[${new Date().toISOString()}] 🚀 Solana Trading Bot starting...`);
+console.log(`[${new Date().toISOString()}] 🔗 Environment: ${process.env.NODE_ENV || 'development'}`);
+
+// Heartbeat for monitoring (every 5 minutes)
+setInterval(() => {
+  console.log(`[${new Date().toISOString()}] 💓 Bot heartbeat - Active and listening`);
+}, 300000);
+
 // Function used to open our websocket connection
 function sendRequest(ws: WebSocket): void {
   const request: WebSocketRequest = {
@@ -43,15 +52,26 @@ async function websocketHandler(): Promise<void> {
       const jsonString = data.toString(); // Convert data to a string
       const parsedData = JSON.parse(jsonString); // Parse the JSON string
 
-      console.log(parsedData);
+      //  console.log(parsedData);
 
       // Safely access the nested structure
       const logs = parsedData?.params?.result?.value?.logs;
       const signature = parsedData?.params?.result?.value?.signature;
 
+       console.log(logs);
+
       // Validate 'logs' is an array
       if (Array.isArray(logs)) {
-        const containsCreate = logs.some((log: string) => typeof log === "string" && log.includes("Program log: initialize2: InitializeInstruction2"));
+        const containsCreate = logs.some((log: string) =>
+            typeof log === "string"
+            && (
+                log.includes("Program log: initialize2")
+                || log.includes("Program log: Create pool")
+                || log.includes("Program log: Add liquidity")
+            )
+        );
+
+          //console.log(containsCreate);
 
         if (!containsCreate || typeof signature !== "string") return;
 

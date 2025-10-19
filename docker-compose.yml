@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  solana-bot:
+    build: .
+    environment:
+      - NODE_ENV=production
+      - PRIV_KEY_WALLET=${PRIV_KEY_WALLET}
+      - HELIUS_HTTPS_URI=${HELIUS_HTTPS_URI}
+      - HELIUS_WSS_URI=${HELIUS_WSS_URI}
+      - HELIUS_HTTPS_URI_TX=${HELIUS_HTTPS_URI_TX}
+      - JUP_HTTPS_QUOTE_URI=${JUP_HTTPS_QUOTE_URI}
+      - JUP_HTTPS_SWAP_URI=${JUP_HTTPS_SWAP_URI}
+    restart: unless-stopped
+    networks:
+      - bot-network
+
+networks:
+  bot-network:
+    driver: bridge

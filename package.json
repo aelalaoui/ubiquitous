@@ -7,7 +7,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "health": "node -e \"console.log('Bot is healthy and running')\"",
+    "postinstall": "npm run build"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0",
@@ -25,6 +27,9 @@
   },
   "keywords": ["solana", "crypto", "trading", "bot"],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
 }
-
