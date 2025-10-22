@@ -29,6 +29,7 @@ export async function buyToken(tokenAddress: string, inputAmount: number, sell: 
             walletAddresses: [env.SNIPEROO_PUBKEY],
             tokenAddress: tokenAddress,
             inputAmount: inputAmount,
+            isBuying: true,
             autoSell: {
                 enabled: sell,
                 strategy: {
