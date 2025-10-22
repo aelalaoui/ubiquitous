@@ -29,9 +29,11 @@ jobs:
       run: npm install -g @railway/cli
 
     - name: Deploy to Railway
-      run: railway up --service=${{ secrets.RAILWAY_SERVICE }}
+      run: railway up
       env:
         RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        RAILWAY_ENVIRONMENT: production
         PRIV_KEY_WALLET: ${{ secrets.PRIV_KEY_WALLET }}
         HELIUS_HTTPS_URI: ${{ secrets.HELIUS_HTTPS_URI }}
         HELIUS_WSS_URI: ${{ secrets.HELIUS_WSS_URI }}
