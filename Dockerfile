@@ -1,5 +1,5 @@
-# Use Node.js LTS version
-FROM node:18-alpine
+# Use Node.js 20 LTS version (required for Solana dependencies)
+FROM node:20-alpine
 
 # Set working directory
 WORKDIR /app
@@ -7,16 +7,18 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies (including dev dependencies for build)
+RUN npm ci
 
 # Copy source code
 COPY src/ ./src/
 COPY tsconfig.json ./
 
-# Install TypeScript and build
-RUN npm install -g typescript ts-node
+# Build the application
 RUN npm run build
+
+# Remove dev dependencies to reduce image size
+RUN npm prune --omit=dev
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
