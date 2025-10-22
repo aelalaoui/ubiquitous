@@ -6,7 +6,7 @@ import { getMintFromSignature } from "./utils/handlers/signatureHandler";
 import { getTokenAuthorities, TokenAuthorityStatus } from "./utils/handlers/tokenHandler";
 import { buyToken } from "./utils/handlers/sniperooHandler";
 import { getRugCheckConfirmed } from "./utils/handlers/rugCheckHandler";
-import { playSound } from "./utils/notification";
+import { playSound, sendTelegramMessage } from "./utils/notification";
 
 // Regional Variables
 let activeTransactions = 0;
@@ -47,6 +47,16 @@ async function processTransaction(signature: string): Promise<void> {
      */
     console.log("🪙 GMGN:", `https://gmgn.ai/sol/token/` + returnedMint);
     console.log("🪙 BullX:", `https://neo.bullx.io/terminal?chainId=1399811149&address=` + returnedMint);
+
+    // Send Telegram notification with token information
+    const telegramMessage = `🚀 <b>Nouveau Token Détecté!</b>
+    
+🪙 <b>Token CA:</b> <code>${returnedMint}</code>
+🔗 <b>Transaction:</b> https://solscan.io/tx/${signature}
+📊 <b>GMGN:</b> https://gmgn.ai/sol/token/${returnedMint}
+📈 <b>BullX:</b> https://neo.bullx.io/terminal?chainId=1399811149&address=${returnedMint}`;
+
+    await sendTelegramMessage(telegramMessage);
 
     /**
      * Perform checks based on selected level of rug check
