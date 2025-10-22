@@ -10,6 +10,12 @@ export enum ConnectionState {
     ERROR = "error"
 }
 
+// Interface pour l'objet de changement d'état
+export interface StateChangeEvent {
+    from: ConnectionState;
+    to: ConnectionState;
+}
+
 export interface WebSocketManagerOptions {
     url: string;
     maxRetries?: number;
@@ -77,7 +83,6 @@ export class WebSocketManager extends EventEmitter {
         try {
             const message = typeof data === 'string' ? data : JSON.stringify(data);
             this.ws.send(message);
-            this.log(`Sent: ${message}`);
             return true;
         } catch (error) {
             this.log(`Failed to send data: ${error}`, "error");

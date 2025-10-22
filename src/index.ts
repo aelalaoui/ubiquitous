@@ -1,7 +1,7 @@
 import WebSocket from "ws"; // Node.js websocket library
 import { validateEnv } from "./utils/env-validator";
 import { config } from "./config";
-import { WebSocketManager, ConnectionState } from "./utils/managers/websocketManager";
+import { WebSocketManager, StateChangeEvent } from "./utils/managers/websocketManager";
 import { getMintFromSignature } from "./utils/handlers/signatureHandler";
 import { getTokenAuthorities, TokenAuthorityStatus } from "./utils/handlers/tokenHandler";
 import { buyToken } from "./utils/handlers/sniperooHandler";
@@ -41,6 +41,12 @@ async function processTransaction(signature: string): Promise<void> {
     }
 
     console.log("✅ [Process Transaction] Token CA extracted successfully");
+
+    /**
+     * Output token mint address
+     */
+    console.log("🪙 GMGN:", `https://gmgn.ai/sol/token/` + returnedMint);
+    console.log("🪙 BullX:", `https://neo.bullx.io/terminal?chainId=1399811149&address=` + returnedMint);
 
     /**
      * Perform checks based on selected level of rug check
@@ -106,12 +112,6 @@ async function processTransaction(signature: string): Promise<void> {
      * Check if Simulation Mode is enabled in order to output the warning
      */
     if (SIM_MODE) console.log("⚠️ [Process Transaction] Token not swapped! Simulation Mode turned on.");
-
-    /**
-     * Output token mint address
-     */
-    console.log("🪙 GMGN:", `https://gmgn.ai/sol/token/` + returnedMint);
-    console.log("🪙 BullX:", `https://neo.bullx.io/terminal?chainId=1399811149&address=` + returnedMint);
 }
 
 // Main function to start the application
@@ -128,11 +128,13 @@ async function main(): Promise<void> {
         initialBackoff: 1000,
         maxBackoff: 30000,
         maxRetries: Infinity,
-        debug: true,
+        debug: false,
     });
 
     // Set up event handlers
-    wsManager.on("open", () => {
+    wsManager.on("connected", () => {
+        console.log("✅ [WebSocket] Connected successfully!");
+
         /**
          * Create a new subscription request for each program ID
          */
@@ -155,14 +157,19 @@ async function main(): Promise<void> {
         });
     });
 
-    wsManager.on("message", async (data: WebSocket.Data) => {
-        try {
-            const jsonString = data.toString(); // Convert data to a string
-            const parsedData = JSON.parse(jsonString); // Parse the JSON string
+    wsManager.on("state_change", (state: StateChangeEvent) => {
+        console.log(`🔄 [WebSocket] State: ${state.from} -> ${state.to}`);
+    });
 
+    wsManager.on("error", (error: Error) => {
+        console.error("🚫 [WebSocket] Connection error:", error.message);
+    });
+
+    wsManager.on("message", async (parsedData: any) => {
+        try {
             // Handle subscription response
             if (parsedData.result !== undefined && !parsedData.error) {
-                console.log("✅ Subscription confirmed");
+                console.log("✅ Subscription confirmed for ID:", parsedData.id);
                 return;
             }
 
@@ -177,13 +184,19 @@ async function main(): Promise<void> {
             const signature = parsedData?.params?.result?.value?.signature;
 
             // Validate `logs` is an array and if we have a signature
-            if (!Array.isArray(logs) || !signature) return;
 
+            if (!Array.isArray(logs) || !signature) {
+                return;
+            }
             // Verify if this is a new pool creation
-            const liquidityPoolInstructions = SUBSCRIBE_LP.filter((pool) => pool.enabled).map((pool) => pool.instruction);
-            const containsCreate = logs.some((log: string) => typeof log === "string" && liquidityPoolInstructions.some((instruction) => log.includes(instruction)));
 
-            if (!containsCreate || typeof signature !== "string") return;
+            const lookfor  = SUBSCRIBE_LP.filter((pool) => pool.enabled).map((pool) => pool.instruction);
+            const containsCreate = lookfor.some( instruction => logs.some(log => log.includes(instruction)));
+            if (!containsCreate || typeof signature !== "string") {
+
+                return;
+            }
+            console.log(signature);
 
             // Verify if we have reached the max concurrent transactions
             if (activeTransactions >= MAX_CONCURRENT) {
@@ -208,12 +221,6 @@ async function main(): Promise<void> {
                 timestamp: new Date().toISOString(),
             });
         }
-    });
-
-    wsManager.on("error", (error: Error) => {
-    });
-
-    wsManager.on("state_change", (state: ConnectionState) => {
     });
 
     // Start the connection

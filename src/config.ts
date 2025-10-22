@@ -5,7 +5,7 @@ export const config = {
             enabled: true,
             id: "pump1",
             name: "pumpswap",
-            program: "6EFBrrcethRSDBkzoznN8uv78hRvfcKJubJ14MSuBEwF6P",
+            program: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
             instruction: "Program log: Instruction: CreatePool",
         },
         {
@@ -40,7 +40,7 @@ export const config = {
     checks: {
         simulation_mode: false,
         mode: "none", // snipe=Minimal Checks, full=Full Checks based on Rug Check, none=No Checks
-        verbose_logs: false,
+        verbose_logs: true,
         settings: {
             // Dangerous (Checked in snipe mode)
             allow_mint_authority: false, // The mint authority is the address that has permission to mint (create) new tokens
