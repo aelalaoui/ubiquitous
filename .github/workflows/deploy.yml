@@ -28,13 +28,18 @@ jobs:
     - name: Install Railway CLI
       run: npm install -g @railway/cli
 
+    - name: Login to Railway
+      run: railway login --token ${{ secrets.RAILWAY_TOKEN }}
+
+    - name: Link to Railway Project
+      run: railway link ${{ secrets.RAILWAY_PROJECT_ID || 'ubiquitous' }}
+
+    - name: Set environment variables
+      run: |
+        railway variables set PRIV_KEY_WALLET="${{ secrets.PRIV_KEY_WALLET }}"
+        railway variables set HELIUS_HTTPS_URI="${{ secrets.HELIUS_HTTPS_URI }}"
+        railway variables set HELIUS_WSS_URI="${{ secrets.HELIUS_WSS_URI }}"
+        railway variables set HELIUS_HTTPS_URI_TX="${{ secrets.HELIUS_HTTPS_URI_TX }}"
+
     - name: Deploy to Railway
-      run: railway up
-      env:
-        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-        RAILWAY_ENVIRONMENT: production
-        PRIV_KEY_WALLET: ${{ secrets.PRIV_KEY_WALLET }}
-        HELIUS_HTTPS_URI: ${{ secrets.HELIUS_HTTPS_URI }}
-        HELIUS_WSS_URI: ${{ secrets.HELIUS_WSS_URI }}
-        HELIUS_HTTPS_URI_TX: ${{ secrets.HELIUS_HTTPS_URI_TX }}
+      run: railway up --detach
