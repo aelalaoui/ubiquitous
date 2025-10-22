@@ -25,12 +25,13 @@ jobs:
     - name: Build application
       run: npm run build
 
+    - name: Install Railway CLI
+      run: npm install -g @railway/cli
+
     - name: Deploy to Railway
-      uses: railwayapp/railway-deploy@v1.0.0
-      with:
-        railway_token: ${{ secrets.RAILWAY_TOKEN }}
-        service: ${{ secrets.RAILWAY_SERVICE }}
+      run: railway up --service=${{ secrets.RAILWAY_SERVICE }}
       env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         PRIV_KEY_WALLET: ${{ secrets.PRIV_KEY_WALLET }}
         HELIUS_HTTPS_URI: ${{ secrets.HELIUS_HTTPS_URI }}
         HELIUS_WSS_URI: ${{ secrets.HELIUS_WSS_URI }}
