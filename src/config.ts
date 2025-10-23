@@ -26,7 +26,7 @@ export const config = {
 
     token_buy: {
         provider: "sniperoo",
-        sol_amount: 0.2, // Amount of SOL to spend
+        sol_amount: 0.1, // Amount of SOL to spend
         play_sound: true, // Works only on windows
         play_sound_text: "Order Filled!",
     },
