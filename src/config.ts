@@ -33,8 +33,8 @@ export const config = {
 
     token_sell: {
         enabled: true, // If set to true, the bot will sell the token via Sniperoo API
-        stop_loss_percent: 10,
-        take_profit_percent: 10,
+        stop_loss_percent: 20,
+        take_profit_percent: 30,
     },
 
     checks: {
