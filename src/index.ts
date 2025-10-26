@@ -4,7 +4,7 @@ import { config } from "./config";
 import { WebSocketManager, StateChangeEvent } from "./utils/managers/websocketManager";
 import { getMintFromSignature } from "./utils/handlers/signatureHandler";
 import { getTokenAuthorities, TokenAuthorityStatus } from "./utils/handlers/tokenHandler";
-import { buyToken } from "./utils/handlers/sniperooHandler";
+import { buyToken, SniperooHandler } from "./utils/handlers/sniperooHandler";
 import { getRugCheckConfirmed } from "./utils/handlers/rugCheckHandler";
 import { playSound, sendTelegramMessage } from "./utils/notification";
 
@@ -22,6 +22,9 @@ const PLAY_SOUND = config.token_buy.play_sound || false;
 const SELL_ENABLED = config.token_sell.enabled || false;
 const SELL_STOP_LOSS = config.token_sell.stop_loss_percent || 15;
 const SELL_TAKE_PROFIT = config.token_sell.take_profit_percent || 50;
+
+// Initialize Sniperoo Handler
+let sniperooHandler: SniperooHandler | null = null;
 
 // Function used to handle the transaction once a new pool creation is found
 async function processTransaction(signature: string): Promise<void> {
@@ -132,6 +135,34 @@ async function main(): Promise<void> {
     // Load environment variables from the .env file
     const env = validateEnv();
 
+    // Initialize SniperooHandler for monitoring positions and orders if API key is available
+    let stateInterval: NodeJS.Timeout | null = null;
+
+    if (env.SNIPEROO_API_KEY) {
+        console.log("🔗 Initializing Sniperoo monitoring...");
+        sniperooHandler = new SniperooHandler(env.SNIPEROO_API_KEY);
+
+        try {
+            await sniperooHandler.connect();
+
+            // Display initial state after connection
+            setTimeout(() => {
+                sniperooHandler?.displayCurrentState();
+            }, 3000);
+
+            // Display state every 5 minutes
+            stateInterval = setInterval(() => {
+                sniperooHandler?.displayCurrentState();
+            }, 300000); // 5 minutes
+
+        } catch (error) {
+            console.error('❌ Failed to connect to Sniperoo API:', error instanceof Error ? error.message : error);
+            console.log('⚠️ Continuing without Sniperoo monitoring...');
+        }
+    } else {
+        console.log('⚠️ SNIPEROO_API_KEY not provided, Sniperoo monitoring disabled');
+    }
+
     // Create WebSocket manager
     const wsManager = new WebSocketManager({
         url: env.HELIUS_WSS_URI,
@@ -237,17 +268,23 @@ async function main(): Promise<void> {
     wsManager.connect();
 
     // Handle application shutdown
-    process.on("SIGINT", () => {
-        console.log("Shutting down...");
-        wsManager.disconnect();
-        process.exit(0);
-    });
+    const gracefulShutdown = async () => {
+        console.log("👋 Shutting down gracefully...");
 
-    process.on("SIGTERM", () => {
-        console.log("Shutting down...");
+        if (stateInterval) {
+            clearInterval(stateInterval);
+        }
+
+        if (sniperooHandler) {
+            await sniperooHandler.disconnect();
+        }
+
         wsManager.disconnect();
         process.exit(0);
-    });
+    };
+
+    process.on("SIGINT", gracefulShutdown);
+    process.on("SIGTERM", gracefulShutdown);
 }
 
 // Start the application

@@ -26,19 +26,19 @@ export const config = {
 
     token_buy: {
         provider: "sniperoo",
-        sol_amount: 0.1, // Amount of SOL to spend
+        sol_amount: 0.05, // Amount of SOL to spend
         play_sound: true, // Works only on windows
         play_sound_text: "Order Filled!",
     },
 
     token_sell: {
         enabled: true, // If set to true, the bot will sell the token via Sniperoo API
-        stop_loss_percent: 20,
-        take_profit_percent: 30,
+        stop_loss_percent: 15,
+        take_profit_percent: 15,
     },
 
     checks: {
-        simulation_mode: false,
+        simulation_mode: true,
         mode: "none", // snipe=Minimal Checks, full=Full Checks based on Rug Check, none=No Checks
         verbose_logs: true,
         settings: {
@@ -70,25 +70,5 @@ export const config = {
     },
     axios: {
         get_timeout: 10000, // Axios request timeout in milliseconds
-    },
-
-    sniperoo: {
-        websocket: {
-            enabled: false, // Désactivé définitivement à cause des erreurs 502/504
-            url: "wss://api.sniperoo.app/ws",
-            reconnect_interval: 5000,
-            max_reconnect_attempts: 10,
-        },
-        position_tracking: {
-            enabled: true,
-            send_notifications: true,
-            test_mode: false, // Désactiver le mode test maintenant que Telegram fonctionne
-            test_telegram_on_startup: false, // Désactiver les tests au démarrage
-            polling: {
-                enabled: true, // Utiliser uniquement le polling
-                interval: 60000, // Poll toutes les 60 secondes
-                debug: false,
-            }
-        }
     },
 }
