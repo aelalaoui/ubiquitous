@@ -38,7 +38,7 @@ export const config = {
     },
 
     checks: {
-        simulation_mode: false,
+        simulation_mode: true,
         mode: "none", // snipe=Minimal Checks, full=Full Checks based on Rug Check, none=No Checks
         verbose_logs: true,
         settings: {
