@@ -50,8 +50,7 @@ export function validateEnv(): EnvConfig {
     }
 
     console.log('✅ Environment variables validated successfully');
-    console.log(`📡 Helius RPC URL: ${rpcUrl}`);
-    console.log(`🔗 Helius WebSocket URL: ${wsUrl}`);
+    console.log(`📡 Helius RPC URL & WebSocket URL loaded`);
 
     if (process.env.SNIPEROO_API_KEY) {
         console.log('🎯 Sniperoo API key loaded');
