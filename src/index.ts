@@ -55,8 +55,8 @@ async function processTransaction(signature: string): Promise<void> {
     const telegramMessage = `🚀 <b>Nouveau Token Détecté!</b>
     
 🪙 <b>Token CA:</b> <code>${returnedMint}</code>
-🔗 <b>Transaction:</b> https://solscan.io/tx/${signature}
 📊 <b>GMGN:</b> https://gmgn.ai/sol/token/${returnedMint}
+🔗 <b>Transaction:</b> https://solscan.io/tx/${signature}
 📈 <b>BullX:</b> https://neo.bullx.io/terminal?chainId=1399811149&address=${returnedMint}`;
 
     await sendTelegramMessage(telegramMessage);
