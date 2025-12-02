@@ -26,7 +26,7 @@ export const config = {
 
     token_buy: {
         provider: "sniperoo",
-        sol_amount: 0.05, // Amount of SOL to spend
+        sol_amount: 1, // Amount of SOL to spend
         play_sound: true, // Works only on windows
         play_sound_text: "Order Filled!",
     },
@@ -34,11 +34,11 @@ export const config = {
     token_sell: {
         enabled: true, // If set to true, the bot will sell the token via Sniperoo API
         stop_loss_percent: 15,
-        take_profit_percent: 30,
+        take_profit_percent: 5,
     },
 
     checks: {
-        simulation_mode: true,
+        simulation_mode: false,
         mode: "none", // snipe=Minimal Checks, full=Full Checks based on Rug Check, none=No Checks
         verbose_logs: true,
         settings: {
