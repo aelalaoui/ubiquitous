@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ubiquitous · risk dashboard</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #15181d;
+    --panel2: #1c2026;
+    --border: #262b32;
+    --text: #e6e7e9;
+    --muted: #8b95a3;
+    --accent: #6ea8fe;
+    --allow: #4ade80;
+    --deny: #f87171;
+    --pending: #facc15;
+    --warn: #fb923c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+    font-size: 13px;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .status { font-size: 12px; color: var(--muted); }
+  .status.ok::before  { content: "🟢 "; }
+  .status.bad::before { content: "🔴 "; }
+  nav {
+    display: flex; gap: 2px; padding: 0 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  nav button {
+    background: transparent; color: var(--muted);
+    border: none; padding: 10px 14px; cursor: pointer;
+    font-size: 13px; border-bottom: 2px solid transparent;
+  }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav button:hover { color: var(--text); }
+  main { padding: 16px; }
+  .hidden { display: none !important; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td {
+    text-align: left; padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 11px; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: var(--panel); }
+  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  .verdict { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .verdict.allow   { background: rgba(74,222,128,.15);  color: var(--allow); }
+  .verdict.deny    { background: rgba(248,113,113,.15); color: var(--deny); }
+  .verdict.pending { background: rgba(250,204,21,.15);  color: var(--pending); }
+  .verdict.untracked { background: rgba(139,149,163,.15); color: var(--muted); }
+  .progress-bar {
+    display: inline-block; width: 80px; height: 8px;
+    background: var(--panel2); border-radius: 4px; overflow: hidden; vertical-align: middle;
+  }
+  .progress-bar > span { display: block; height: 100%; background: var(--accent); }
+  .muted { color: var(--muted); }
+  .danger { color: var(--deny); }
+  .ok { color: var(--allow); }
+  .warn { color: var(--warn); }
+  .kpi-grid {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    margin-bottom: 16px;
+  }
+  .kpi {
+    background: var(--panel); padding: 12px 16px;
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .kpi .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 16px;
+  }
+  .detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .detail-grid .full { grid-column: 1 / -1; }
+  .trade-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+  .trade-row .buy  { color: var(--allow); }
+  .trade-row .sell { color: var(--deny); }
+  .controls { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+  .controls input, .controls select, .controls button {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    padding: 6px 10px; border-radius: 6px; font-size: 12px;
+  }
+  .toast-container { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
+  .toast {
+    background: var(--panel); border: 1px solid var(--border); padding: 10px 14px;
+    border-radius: 6px; font-size: 12px; max-width: 320px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.35);
+    animation: slidein .2s ease-out;
+  }
+  .toast.allow { border-left: 3px solid var(--allow); }
+  .toast.deny  { border-left: 3px solid var(--deny); }
+  @keyframes slidein { from { transform: translateX(100%); opacity: 0; } to { transform: none; opacity: 1; } }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .danger-btn {
+    background: transparent; color: var(--deny);
+    border: 1px solid rgba(248,113,113,.35);
+    padding: 4px 10px; border-radius: 6px; cursor: pointer;
+    font-size: 11px;
+  }
+  .danger-btn:hover { background: rgba(248,113,113,.1); border-color: var(--deny); }
+  .gmgn-link {
+    font-size: 10px; padding: 1px 6px;
+    border: 1px solid var(--border); border-radius: 4px;
+    background: var(--panel2); color: var(--accent);
+  }
+  .gmgn-link:hover { background: var(--panel); text-decoration: none; }
+  .social-link {
+    display: inline-block; padding: 0 5px; margin-left: 3px;
+    border: 1px solid var(--border); border-radius: 4px;
+    background: var(--panel2); font-size: 10px; line-height: 16px;
+    color: var(--muted); text-decoration: none;
+  }
+  .social-link:hover { color: var(--text); background: var(--panel); text-decoration: none; }
+  .social-link.twitter:hover  { color: #1da1f2; border-color: #1da1f2; }
+  .social-link.telegram:hover { color: #229ED9; border-color: #229ED9; }
+  .social-link.website:hover  { color: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ubiquitous · risk dashboard</h1>
+  <div>
+    <span id="tracked-count" class="muted">— tracked</span>
+    &nbsp;·&nbsp;
+    <span id="status" class="status">connecting…</span>
+    &nbsp;·&nbsp;
+    <button id="btn-truncate" class="danger-btn" title="Wipe all token_risk rows + in-memory state">🗑 truncate</button>
+  </div>
+</header>
+
+<nav>
+  <button data-tab="live"       class="active">Almost Curved</button>
+  <button data-tab="creations">Creations</button>
+  <button data-tab="detail">Detail</button>
+  <button data-tab="migrations">Migrations</button>
+  <button data-tab="stats">Stats</button>
+</nav>
+
+<main>
+
+  <section id="tab-live">
+    <div class="controls">
+      <input id="filter-mint" placeholder="filter by name or mint prefix" />
+      <select id="filter-verdict">
+        <option value="">all verdicts</option>
+        <option value="allow">allow</option>
+        <option value="deny">deny</option>
+        <option value="pending">pending</option>
+      </select>
+      <button id="refresh-live">refresh</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>token</th>
+          <th>progress</th>
+          <th>verdict</th>
+          <th>top1</th>
+          <th>dev_bal</th>
+          <th>dev_hold</th>
+          <th>bot%</th>
+          <th>uniq10</th>
+          <th>regr</th>
+          <th>trades (b/s)</th>
+          <th>last seen</th>
+        </tr>
+      </thead>
+      <tbody id="live-body"><tr><td colspan="11" class="muted">loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <section id="tab-creations" class="hidden">
+    <div class="controls">
+      <input id="creations-filter" placeholder="filter by name, symbol, or mint prefix" />
+      <button id="refresh-creations">refresh</button>
+      <span class="muted" id="creations-count"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>created</th>
+          <th>token</th>
+          <th>dev</th>
+          <th>bonding curve</th>
+          <th>links</th>
+        </tr>
+      </thead>
+      <tbody id="creations-body"><tr><td colspan="5" class="muted">loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <section id="tab-detail" class="hidden">
+    <div class="controls">
+      <input id="detail-mint" placeholder="mint address" style="min-width: 420px;" />
+      <button id="detail-load">load</button>
+      <button id="detail-back">← back to almost curved</button>
+    </div>
+    <div id="detail-empty" class="muted panel">select a token from the Live tab, or paste a mint above.</div>
+    <div id="detail-content" class="hidden">
+      <div class="detail-head">
+        <div>
+          <div class="mono" id="detail-mint-display" style="font-size: 15px;"></div>
+          <div class="muted" style="margin-top: 4px;">
+            <a id="detail-gmgn" target="_blank" rel="noopener">GMGN ↗</a>
+            &nbsp;·&nbsp;
+            <a id="detail-bullx" target="_blank" rel="noopener">BullX ↗</a>
+            &nbsp;·&nbsp;
+            <a id="detail-solscan" target="_blank" rel="noopener">Solscan ↗</a>
+          </div>
+        </div>
+        <div id="detail-verdict"></div>
+      </div>
+      <div class="detail-grid">
+        <div class="panel full">
+          <div class="muted" style="margin-bottom: 8px;">progress timeline (ring buffer, most recent 64 trades)</div>
+          <canvas id="detail-chart" height="120"></canvas>
+        </div>
+        <div class="panel">
+          <div class="muted" style="margin-bottom: 8px;">signals</div>
+          <div id="detail-signals"></div>
+        </div>
+        <div class="panel">
+          <div class="muted" style="margin-bottom: 8px;">recent trades</div>
+          <div id="detail-trades"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-migrations" class="hidden">
+    <div class="controls">
+      <select id="migrations-filter">
+        <option value="">all</option>
+        <option value="allow">allow</option>
+        <option value="deny">deny</option>
+        <option value="bought">bought only</option>
+      </select>
+      <button id="refresh-migrations">refresh</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>when</th>
+          <th>token</th>
+          <th>verdict</th>
+          <th>reason</th>
+          <th>progress</th>
+          <th>top1</th>
+          <th>bought?</th>
+          <th>buy_ok</th>
+          <th>error</th>
+        </tr>
+      </thead>
+      <tbody id="migrations-body"><tr><td colspan="9" class="muted">loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <section id="tab-stats" class="hidden">
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label">tracked</div><div class="value" id="k-tracked">—</div></div>
+      <div class="kpi"><div class="label">allow</div><div class="value ok" id="k-allow">—</div></div>
+      <div class="kpi"><div class="label">deny</div><div class="value danger" id="k-deny">—</div></div>
+      <div class="kpi"><div class="label">pending</div><div class="value warn" id="k-pending">—</div></div>
+      <div class="kpi"><div class="label">migrations today</div><div class="value" id="k-mig-today">—</div></div>
+      <div class="kpi"><div class="label">migrations 7d</div><div class="value" id="k-mig-week">—</div></div>
+      <div class="kpi"><div class="label">buys attempted today</div><div class="value" id="k-buys-att">—</div></div>
+      <div class="kpi"><div class="label">buys ok today</div><div class="value ok" id="k-buys-ok">—</div></div>
+      <div class="kpi"><div class="label">in-memory mints</div><div class="value" id="k-mem">—</div></div>
+      <div class="kpi"><div class="label">dev wallets captured</div><div class="value" id="k-dev">—</div></div>
+      <div class="kpi"><div class="label">SSE listeners</div><div class="value" id="k-sse">—</div></div>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast-container" id="toasts"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n, d = 2) => (n === null || n === undefined) ? "—" : Number(n).toFixed(d);
+  const fmtInt = (n) => (n === null || n === undefined) ? "—" : String(Math.round(Number(n)));
+  const short = (mint) => mint ? mint.slice(0, 4) + "…" + mint.slice(-4) : "—";
+  const socialsHtml = (r) => {
+    const parts = [];
+    if (r.twitter)  parts.push(`<a class="social-link twitter"  href="${escapeHtml(r.twitter)}"  target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Twitter">𝕏</a>`);
+    if (r.telegram) parts.push(`<a class="social-link telegram" href="${escapeHtml(r.telegram)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Telegram">TG</a>`);
+    if (r.website)  parts.push(`<a class="social-link website"  href="${escapeHtml(r.website)}"  target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Website">🌐</a>`);
+    return parts.join("");
+  };
+  const relTime = (ts) => {
+    if (!ts) return "—";
+    const s = Math.round((Date.now() - ts) / 1000);
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.round(s / 60) + "m";
+    if (s < 86400) return Math.round(s / 3600) + "h";
+    return Math.round(s / 86400) + "d";
+  };
+
+  // ---------- state ----------
+  const state = {
+    tokens: new Map(),     // mint -> row (tracked tokens >= 90%)
+    creations: [],         // list of { mint, name, symbol, dev, bondingCurve, capturedAt }
+    activeMint: null,
+    chart: null,
+  };
+  const MAX_CREATIONS_IN_UI = 500;
+
+  // ---------- tabs ----------
+  const tabs = ["live", "creations", "detail", "migrations", "stats"];
+  document.querySelectorAll("nav button").forEach(btn => {
+    btn.addEventListener("click", () => showTab(btn.dataset.tab));
+  });
+  function showTab(name) {
+    tabs.forEach(t => {
+      $("tab-" + t).classList.toggle("hidden", t !== name);
+      document.querySelector(`nav button[data-tab="${t}"]`).classList.toggle("active", t === name);
+    });
+    if (name === "migrations") loadMigrations();
+    if (name === "creations") loadCreations();
+    if (name === "stats") loadStats();
+    if (name === "live") renderLive();
+  }
+
+  // ---------- live ----------
+  async function loadTokens() {
+    try {
+      const r = await fetch("/api/tokens");
+      if (!r.ok) throw new Error(r.status);
+      const rows = await r.json();
+      state.tokens.clear();
+      for (const row of rows) state.tokens.set(row.mint, row);
+      renderLive();
+    } catch (e) {
+      $("live-body").innerHTML = `<tr><td colspan="11" class="danger">failed to load: ${e.message}</td></tr>`;
+    }
+  }
+  function renderLive() {
+    const filter = ($("filter-mint").value || "").toLowerCase();
+    const vFilter = $("filter-verdict").value;
+    const rows = [...state.tokens.values()]
+      .filter(r => !filter
+        || r.mint.toLowerCase().startsWith(filter)
+        || (r.name && r.name.toLowerCase().includes(filter))
+        || (r.symbol && r.symbol.toLowerCase().includes(filter)))
+      .filter(r => !vFilter || (r.verdict || "pending") === vFilter)
+      .sort((a, b) => (b.progress || 0) - (a.progress || 0));
+    $("tracked-count").textContent = state.tokens.size + " tracked";
+
+    if (!rows.length) {
+      $("live-body").innerHTML = `<tr><td colspan="11" class="muted">no tokens in tracking band (>= 90%).</td></tr>`;
+      return;
+    }
+    const html = rows.map(r => {
+      const verdict = r.verdict || "pending";
+      const gmgnLink = `<a href="https://gmgn.ai/sol/token/${r.mint}" target="_blank" rel="noopener" class="gmgn-link" onclick="event.stopPropagation()">GMGN ↗</a>`;
+      const socials = socialsHtml(r);
+      const label = r.name
+        ? `<div>${escapeHtml(r.name)}${r.symbol ? ` <span class="muted">· ${escapeHtml(r.symbol)}</span>` : ""} &nbsp;${gmgnLink} ${socials}</div>
+           <div class="mono muted" style="font-size:10px;">${short(r.mint)}</div>`
+        : `<div class="mono">${short(r.mint)} &nbsp;${gmgnLink} ${socials}</div>
+           <div class="muted" style="font-size:10px;">(no metadata yet)</div>`;
+      return `
+        <tr class="clickable" data-mint="${r.mint}">
+          <td>${label}</td>
+          <td>
+            <span class="progress-bar"><span style="width:${Math.min(100, r.progress || 0)}%"></span></span>
+            ${fmt(r.progress)}%
+          </td>
+          <td>
+            <span class="verdict ${verdict}">${verdict}</span>
+            ${r.verdict_reason ? `<div class="muted" style="font-size:10px;margin-top:2px;">${escapeHtml(r.verdict_reason)}</div>` : ""}
+          </td>
+          <td class="${r.top_holder_pct && r.top_holder_pct > 20 ? "danger" : r.top_holder_pct && r.top_holder_pct > 10 ? "warn" : ""}">${fmt(r.top_holder_pct)}${r.top_holder_pct !== null ? "%" : ""}</td>
+          <td>${fmtInt(r.dev_balance_tok)}</td>
+          <td>${fmt(r.dev_holds_pct)}${r.dev_holds_pct !== null ? "%" : ""}</td>
+          <td class="${r.bot_concentration && r.bot_concentration > 60 ? "danger" : ""}">${fmt(r.bot_concentration)}${r.bot_concentration !== null ? "%" : ""}</td>
+          <td class="${r.unique_buyers_10 !== null && r.unique_buyers_10 < 3 ? "danger" : ""}">${fmtInt(r.unique_buyers_10)}</td>
+          <td>${r.curve_regression ? '<span class="danger">yes</span>' : 'no'}</td>
+          <td>${r.trade_count} <span class="muted">(${r.buy_count}/${r.sell_count})</span></td>
+          <td class="muted">${relTime(r.last_seen)}</td>
+        </tr>`;
+    }).join("");
+    $("live-body").innerHTML = html;
+    $("live-body").querySelectorAll("tr.clickable").forEach(tr => {
+      tr.addEventListener("click", () => {
+        $("detail-mint").value = tr.dataset.mint;
+        showTab("detail");
+        loadDetail(tr.dataset.mint);
+      });
+    });
+  }
+  $("filter-mint").addEventListener("input", renderLive);
+  $("filter-verdict").addEventListener("change", renderLive);
+  $("refresh-live").addEventListener("click", loadTokens);
+
+  // ---------- detail ----------
+  async function loadDetail(mint) {
+    if (!mint) return;
+    $("detail-empty").classList.add("hidden");
+    $("detail-content").classList.remove("hidden");
+    try {
+      const r = await fetch("/api/tokens/" + encodeURIComponent(mint));
+      if (!r.ok) throw new Error(r.status + " " + r.statusText);
+      const row = await r.json();
+      state.activeMint = mint;
+
+      $("detail-mint-display").textContent = row.name
+        ? `${row.name}${row.symbol ? " · " + row.symbol : ""}  —  ${row.mint}`
+        : row.mint;
+      $("detail-gmgn").href    = "https://gmgn.ai/sol/token/" + row.mint;
+      $("detail-bullx").href   = "https://neo.bullx.io/terminal?chainId=1399811149&address=" + row.mint;
+      $("detail-solscan").href = "https://solscan.io/token/" + row.mint;
+
+      const verdict = row.verdict || "pending";
+      $("detail-verdict").innerHTML =
+        `<span class="verdict ${verdict}" style="font-size:13px;padding:4px 12px;">${verdict}</span>` +
+        (row.verdict_reason ? `<div class="muted" style="margin-top:4px;font-size:11px;">${escapeHtml(row.verdict_reason)}</div>` : "");
+
+      renderSignals(row);
+      renderTrades(row.recent_trades || []);
+      renderChart(row.recent_trades || []);
+    } catch (e) {
+      $("detail-content").classList.add("hidden");
+      $("detail-empty").textContent = "failed: " + e.message;
+      $("detail-empty").classList.remove("hidden");
+    }
+  }
+  function renderSignals(row) {
+    const rows = [
+      ["progress", fmt(row.progress) + "%"],
+      ["top_holder_pct", fmt(row.top_holder_pct) + (row.top_holder_pct !== null ? "%" : "")],
+      ["dev", row.dev ? short(row.dev) : "—"],
+      ["dev_lookup_state", row.dev_lookup_state || "—"],
+      ["dev_balance_tok", fmtInt(row.dev_balance_tok)],
+      ["dev_holds_pct", fmt(row.dev_holds_pct) + (row.dev_holds_pct !== null ? "%" : "")],
+      ["bot_concentration", fmt(row.bot_concentration) + (row.bot_concentration !== null ? "%" : "")],
+      ["unique_buyers_10", fmtInt(row.unique_buyers_10)],
+      ["curve_regression", row.curve_regression ? "yes" : "no"],
+      ["trade_count", row.trade_count + " (" + row.buy_count + " buy / " + row.sell_count + " sell)"],
+      ["first_seen", new Date(row.first_seen).toLocaleString()],
+      ["last_seen", new Date(row.last_seen).toLocaleString()],
+    ];
+    $("detail-signals").innerHTML = rows.map(([k, v]) =>
+      `<div class="trade-row"><span class="muted">${k}</span><span class="mono">${v}</span></div>`
+    ).join("");
+  }
+  function renderTrades(trades) {
+    if (!trades.length) {
+      $("detail-trades").innerHTML = `<div class="muted">ring buffer empty (mint not in memory — state is persisted only)</div>`;
+      return;
+    }
+    $("detail-trades").innerHTML = trades.slice().reverse().map(t =>
+      `<div class="trade-row">
+        <span class="${t.side}">${t.side.toUpperCase()}</span>
+        <span class="mono">${short(t.trader)}</span>
+        <span class="mono">${fmt(t.progress)}%</span>
+        <span class="muted">${relTime(t.timestamp)}</span>
+      </div>`
+    ).join("");
+  }
+  function renderChart(trades) {
+    const data = trades.map(t => ({ x: t.timestamp, y: t.progress }));
+    const ctx = $("detail-chart").getContext("2d");
+    if (state.chart) state.chart.destroy();
+    state.chart = new Chart(ctx, {
+      type: "line",
+      data: { datasets: [{ label: "progress %", data, borderColor: "#6ea8fe", backgroundColor: "rgba(110,168,254,.15)", fill: true, tension: 0.15, pointRadius: 2 }] },
+      options: {
+        animation: false,
+        responsive: true,
+        scales: {
+          x: { type: "time", time: { unit: "minute" }, ticks: { color: "#8b95a3" }, grid: { color: "#262b32" } },
+          y: { suggestedMin: 85, suggestedMax: 100, ticks: { color: "#8b95a3" }, grid: { color: "#262b32" } },
+        },
+        plugins: { legend: { display: false } },
+      },
+    });
+  }
+  $("detail-load").addEventListener("click", () => loadDetail($("detail-mint").value.trim()));
+  $("detail-back").addEventListener("click", () => showTab("live"));
+
+  // ---------- creations ----------
+  async function loadCreations() {
+    try {
+      const r = await fetch("/api/creations?limit=" + MAX_CREATIONS_IN_UI);
+      if (!r.ok) throw new Error(r.status);
+      state.creations = await r.json();
+      renderCreations();
+    } catch (e) {
+      $("creations-body").innerHTML = `<tr><td colspan="5" class="danger">failed: ${e.message}</td></tr>`;
+    }
+  }
+  function renderCreations() {
+    const filter = ($("creations-filter").value || "").toLowerCase();
+    const rows = state.creations.filter(c => !filter
+      || c.mint.toLowerCase().startsWith(filter)
+      || (c.name && c.name.toLowerCase().includes(filter))
+      || (c.symbol && c.symbol.toLowerCase().includes(filter))
+    );
+    $("creations-count").textContent = `${rows.length} shown / ${state.creations.length} total`;
+
+    if (!rows.length) {
+      $("creations-body").innerHTML = `<tr><td colspan="5" class="muted">no creations captured yet.</td></tr>`;
+      return;
+    }
+    $("creations-body").innerHTML = rows.map(c => {
+      const socials = socialsHtml(c);
+      const label = c.name
+        ? `<div>${escapeHtml(c.name)}${c.symbol ? ` <span class="muted">· ${escapeHtml(c.symbol)}</span>` : ""} ${socials}</div>
+           <div class="mono muted" style="font-size:10px;">${short(c.mint)}</div>`
+        : `<div class="mono">${short(c.mint)} ${socials}</div>`;
+      return `
+        <tr>
+          <td class="muted">${relTime(c.capturedAt)} ago<div style="font-size:10px;">${new Date(c.capturedAt).toLocaleTimeString()}</div></td>
+          <td class="clickable" data-mint="${c.mint}">${label}</td>
+          <td class="mono">${short(c.dev)}</td>
+          <td class="mono muted">${short(c.bondingCurve)}</td>
+          <td>
+            <a href="https://gmgn.ai/sol/token/${c.mint}" target="_blank" rel="noopener">GMGN</a>
+            &nbsp;·&nbsp;
+            <a href="https://neo.bullx.io/terminal?chainId=1399811149&address=${c.mint}" target="_blank" rel="noopener">BullX</a>
+            ${c.uri ? `&nbsp;·&nbsp;<a href="${escapeHtml(c.uri)}" target="_blank" rel="noopener">meta</a>` : ""}
+          </td>
+        </tr>`;
+    }).join("");
+    $("creations-body").querySelectorAll(".clickable").forEach(td => {
+      td.addEventListener("click", () => {
+        $("detail-mint").value = td.dataset.mint;
+        showTab("detail");
+        loadDetail(td.dataset.mint);
+      });
+    });
+  }
+  $("refresh-creations").addEventListener("click", loadCreations);
+  $("creations-filter").addEventListener("input", renderCreations);
+
+  // ---------- migrations ----------
+  async function loadMigrations() {
+    try {
+      const r = await fetch("/api/migrations?limit=100");
+      if (!r.ok) throw new Error(r.status);
+      const rows = await r.json();
+      const filter = $("migrations-filter").value;
+      const filtered = rows.filter(row => {
+        if (!filter) return true;
+        if (filter === "bought") return row.buy_attempted && row.buy_success;
+        return (row.verdict || "") === filter;
+      });
+      if (!filtered.length) {
+        $("migrations-body").innerHTML = `<tr><td colspan="9" class="muted">no migrations recorded yet.</td></tr>`;
+        return;
+      }
+      $("migrations-body").innerHTML = filtered.map(row => {
+        const v = row.verdict || "untracked";
+        const gmgnLink = `<a href="https://gmgn.ai/sol/token/${row.mint}" target="_blank" rel="noopener" class="gmgn-link" onclick="event.stopPropagation()">GMGN ↗</a>`;
+        const socials = socialsHtml(row);
+        const label = row.name
+          ? `<div>${escapeHtml(row.name)}${row.symbol ? ` <span class="muted">· ${escapeHtml(row.symbol)}</span>` : ""} &nbsp;${gmgnLink} ${socials}</div>
+             <div class="mono muted" style="font-size:10px;">${short(row.mint)}</div>`
+          : `<div class="mono">${short(row.mint)} &nbsp;${gmgnLink} ${socials}</div>`;
+        return `
+          <tr>
+            <td class="muted">${new Date(row.migrated_at).toLocaleString()}</td>
+            <td class="clickable" data-mint="${row.mint}">${label}</td>
+            <td><span class="verdict ${v}">${v}</span></td>
+            <td class="muted">${row.verdict_reason ? escapeHtml(row.verdict_reason).slice(0, 80) : ""}</td>
+            <td>${fmt(row.progress)}%</td>
+            <td>${fmt(row.top_holder_pct)}${row.top_holder_pct !== null ? "%" : ""}</td>
+            <td>${row.buy_attempted ? "yes" : "no"}</td>
+            <td>${row.buy_success === null ? "—" : row.buy_success ? '<span class="ok">ok</span>' : '<span class="danger">fail</span>'}</td>
+            <td class="danger">${row.buy_error ? escapeHtml(row.buy_error).slice(0, 60) : ""}</td>
+          </tr>`;
+      }).join("");
+      $("migrations-body").querySelectorAll(".clickable").forEach(td => {
+        td.addEventListener("click", () => {
+          $("detail-mint").value = td.dataset.mint;
+          showTab("detail"); loadDetail(td.dataset.mint);
+        });
+      });
+    } catch (e) {
+      $("migrations-body").innerHTML = `<tr><td colspan="9" class="danger">failed: ${e.message}</td></tr>`;
+    }
+  }
+  $("refresh-migrations").addEventListener("click", loadMigrations);
+  $("migrations-filter").addEventListener("change", loadMigrations);
+
+  // ---------- stats ----------
+  async function loadStats() {
+    try {
+      const r = await fetch("/api/stats");
+      if (!r.ok) throw new Error(r.status);
+      const s = await r.json();
+      $("k-tracked").textContent   = s.tracked_count;
+      $("k-allow").textContent     = s.allow_count;
+      $("k-deny").textContent      = s.deny_count;
+      $("k-pending").textContent   = s.pending_count;
+      $("k-mig-today").textContent = s.migrations_today;
+      $("k-mig-week").textContent  = s.migrations_week;
+      $("k-buys-att").textContent  = s.buys_attempted_today;
+      $("k-buys-ok").textContent   = s.buys_success_today;
+      $("k-mem").textContent       = s.in_memory_state_count;
+      $("k-dev").textContent       = s.dev_wallet_store_count ?? "—";
+      $("k-sse").textContent       = s.sse_listeners;
+    } catch (e) { /* ignore */ }
+  }
+
+  // ---------- SSE ----------
+  function connectSse() {
+    const es = new EventSource("/api/stream");
+    es.onopen = () => {
+      $("status").textContent = "connected";
+      $("status").className = "status ok";
+    };
+    es.onerror = () => {
+      $("status").textContent = "reconnecting…";
+      $("status").className = "status bad";
+    };
+    es.addEventListener("trade", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        const existing = state.tokens.get(d.mint) || { mint: d.mint, verdict: "pending" };
+        existing.progress     = d.progress;
+        existing.last_real_sol = d.realSol;
+        existing.last_real_tok = d.realTok;
+        existing.trade_count  = d.tradeCount;
+        existing.last_seen    = d.timestamp;
+        if (d.name)   existing.name = d.name;
+        if (d.symbol) existing.symbol = d.symbol;
+        state.tokens.set(d.mint, existing);
+        renderLive();
+        if (state.activeMint === d.mint) {
+          // Refresh detail in background (throttle could be added; acceptable at this scale).
+          loadDetail(d.mint);
+        }
+      } catch {}
+    });
+    es.addEventListener("socials", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        // Update Almost Curved row if present
+        const t = state.tokens.get(d.mint);
+        if (t) {
+          t.twitter = d.twitter; t.telegram = d.telegram; t.website = d.website;
+          t.description = d.description; t.image = d.image;
+          renderLive();
+        }
+        // Update Creations row if present
+        const c = state.creations.find(x => x.mint === d.mint);
+        if (c) {
+          c.twitter = d.twitter; c.telegram = d.telegram; c.website = d.website;
+          c.description = d.description; c.image = d.image;
+          if (!$("tab-creations").classList.contains("hidden")) renderCreations();
+        }
+      } catch {}
+    });
+    es.addEventListener("metadata", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        const existing = state.tokens.get(d.mint);
+        if (!existing) return; // token not yet in Live; it will pick up the name via /api/tokens
+        if (d.name)   existing.name = d.name;
+        if (d.symbol) existing.symbol = d.symbol;
+        renderLive();
+        if (state.activeMint === d.mint) loadDetail(d.mint);
+      } catch {}
+    });
+    es.addEventListener("verdict", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        const existing = state.tokens.get(d.mint) || { mint: d.mint };
+        existing.verdict = d.verdict;
+        existing.verdict_reason = d.reason;
+        state.tokens.set(d.mint, existing);
+        renderLive();
+      } catch {}
+    });
+    es.addEventListener("creation", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        state.creations.unshift(d);
+        if (state.creations.length > MAX_CREATIONS_IN_UI) {
+          state.creations.length = MAX_CREATIONS_IN_UI;
+        }
+        // Only re-render if the tab is visible; otherwise the count just grows silently.
+        if (!$("tab-creations").classList.contains("hidden")) renderCreations();
+      } catch {}
+    });
+    es.addEventListener("migration", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        toast(d);
+        if (!document.getElementById("tab-migrations").classList.contains("hidden")) loadMigrations();
+        loadStats();
+      } catch {}
+    });
+  }
+  function toast(d) {
+    const el = document.createElement("div");
+    el.className = "toast " + (d.bought ? "allow" : (d.verdict === "allow" ? "allow" : "deny"));
+    el.innerHTML = `
+      <div><b>${d.bought ? "✅ bought" : (d.verdict === "allow" ? "allow (buy failed)" : "🛑 " + d.verdict)}</b></div>
+      <div class="mono" style="font-size:11px;margin-top:2px;">${short(d.mint)}</div>
+      ${d.reason ? `<div class="muted" style="font-size:11px;margin-top:2px;">${escapeHtml(d.reason)}</div>` : ""}
+    `;
+    $("toasts").appendChild(el);
+    setTimeout(() => el.remove(), 8000);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ---------- admin: truncate ----------
+  $("btn-truncate").addEventListener("click", async () => {
+    if (!confirm("Wipe ALL token_risk rows and in-memory state? This cannot be undone.")) return;
+    try {
+      const r = await fetch("/api/admin/truncate", { method: "POST" });
+      if (!r.ok) throw new Error(r.status + " " + r.statusText);
+      const body = await r.json();
+      state.tokens.clear();
+      state.activeMint = null;
+      renderLive();
+      loadMigrations();
+      loadStats();
+      const el = document.createElement("div");
+      el.className = "toast";
+      el.innerHTML = `<b>🧹 truncated</b><br>${body.rows_deleted} rows · ${body.states_cleared} in-memory states`;
+      $("toasts").appendChild(el);
+      setTimeout(() => el.remove(), 5000);
+    } catch (e) {
+      alert("Truncate failed: " + e.message);
+    }
+  });
+
+  // ---------- boot ----------
+  loadTokens();
+  loadCreations();
+  loadStats();
+  connectSse();
+  setInterval(loadStats, 10_000);    // refresh stats every 10s as a fallback
+  setInterval(loadTokens, 20_000);   // catch any metadata that slipped past SSE
+})();
+</script>
+
+</body>
+</html>

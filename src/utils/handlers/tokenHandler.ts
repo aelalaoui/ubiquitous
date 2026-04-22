@@ -1,7 +1,13 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import { getMint } from "@solana/spl-token";
+import {
+    getMint,
+    getAssociatedTokenAddressSync,
+    TOKEN_PROGRAM_ID,
+    TOKEN_2022_PROGRAM_ID,
+} from "@solana/spl-token";
 import { config } from "../../config";
 import { validateEnv } from "../env-validator";
+import { getBondingCurvePDA } from "../decoders/pumpTradeEvent";
 
 export class TokenCheckManager {
     private connection: Connection;
@@ -114,4 +120,72 @@ export async function getTokenAuthorities(mintAddress: string): Promise<TokenAut
  */
 export async function isTokenSecure(mintAddress: string): Promise<boolean> {
     return tokenCheckManager.isTokenSecure(mintAddress);
+}
+
+let sharedConnection: Connection | null = null;
+function getSharedConnection(): Connection {
+    if (!sharedConnection) {
+        const env = validateEnv();
+        sharedConnection = new Connection(env.HELIUS_HTTPS_URI, "confirmed");
+    }
+    return sharedConnection;
+}
+
+/**
+ * Detect which token program owns a mint account (classic SPL Token vs Token-2022).
+ * Pump.fun graduating tokens and some pumpfun-related flows use Token-2022 —
+ * hitting them with the default TOKEN_PROGRAM_ID raises "Invalid param: not a Token mint".
+ */
+export async function getMintProgramId(mint: string): Promise<PublicKey | null> {
+    const connection = getSharedConnection();
+    const info = await connection.getAccountInfo(new PublicKey(mint));
+    if (!info) return null;
+    if (info.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
+    if (info.owner.equals(TOKEN_PROGRAM_ID)) return TOKEN_PROGRAM_ID;
+    return null; // account exists but isn't a token mint (e.g. bonding curve PDA hit by mistake)
+}
+
+/**
+ * Return the largest holder's share of supply (percent), EXCLUDING the bonding
+ * curve's associated token account. On pump.fun the bonding curve ATA holds the
+ * bulk of the supply until graduation — counting it would drown out every other
+ * signal.
+ */
+export async function getTopHolderPct(mint: string): Promise<number | null> {
+    try {
+        const connection = getSharedConnection();
+        const mintPk = new PublicKey(mint);
+
+        const programId = await getMintProgramId(mint);
+        if (!programId) {
+            console.error(`[getTopHolderPct] ${mint} is not owned by any token program`);
+            return null;
+        }
+
+        const bondingCurve = new PublicKey(getBondingCurvePDA(mint));
+        const excludedAta = getAssociatedTokenAddressSync(mintPk, bondingCurve, true, programId).toBase58();
+
+        const [largest, mintInfo] = await Promise.all([
+            connection.getTokenLargestAccounts(mintPk),
+            getMint(connection, mintPk, undefined, programId),
+        ]);
+
+        const totalSupply = Number(mintInfo.supply);
+        if (totalSupply <= 0) return null;
+
+        // Accounts are sorted desc by amount; pick the largest that isn't the bonding curve ATA.
+        for (const acc of largest.value) {
+            if (acc.address.toBase58() === excludedAta) continue;
+            const amount = Number(acc.amount);
+            if (!isFinite(amount) || amount <= 0) continue;
+            return (amount / totalSupply) * 100;
+        }
+        return 0; // only the bonding curve holds tokens → no external concentration
+    } catch (error) {
+        const msg = error instanceof Error
+            ? (error.message || error.name || error.toString())
+            : String(error);
+        console.error(`[getTopHolderPct] failed for ${mint}: ${msg}`);
+        return null;
+    }
 }

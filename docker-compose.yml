@@ -3,6 +3,8 @@ version: '3.8'
 services:
   solana-bot:
     build: .
+    ports:
+      - "3000:3000"   # dashboard (HTTP + SSE)
     environment:
       - NODE_ENV=production
       - PRIV_KEY_WALLET=${PRIV_KEY_WALLET}
@@ -11,6 +13,8 @@ services:
       - HELIUS_HTTPS_URI_TX=${HELIUS_HTTPS_URI_TX}
       - JUP_HTTPS_QUOTE_URI=${JUP_HTTPS_QUOTE_URI}
       - JUP_HTTPS_SWAP_URI=${JUP_HTTPS_SWAP_URI}
+      - DASHBOARD_USER=${DASHBOARD_USER}
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD}
     restart: unless-stopped
     networks:
       - bot-network
