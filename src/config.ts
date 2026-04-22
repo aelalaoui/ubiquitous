@@ -71,4 +71,30 @@ export const config = {
     axios: {
         get_timeout: 10000, // Axios request timeout in milliseconds
     },
+
+    dashboard: {
+        enabled: true,
+        port: 3000,
+        auth_required: false, // in prod (NODE_ENV=production), auth is auto-forced
+    },
+
+    pump_risk: {
+        enabled: true,
+        min_track_progress: 90,        // below this %, decoded trades are discarded
+        refresh_at_progress: 98,       // re-run top holder + dev metrics once this % is crossed
+        untracked_policy: "deny" as "deny" | "legacy" | "allow",
+        rpc_concurrency: 4,
+        thresholds: {
+            top1_deny: 20,              // top-1 holder % (excluding bonding curve PDA)
+            top1_warn: 10,              // informational only
+            dev_balance_zero_deny: true,
+            dev_sold_pct_deny: 50,      // informational (dev_sold_pct not computed in V1)
+            dev_holds_pct_warn: 15,     // informational only
+            bot_concentration_deny: 60, // % of buys from top-5 wallets
+            min_buys_for_concentration: 20, // minimum observed buys before concentration/verdict is trusted
+            unique_buyers_min_last10: 3,
+            curve_regression_deny: true,
+            curve_regression_drop_pct: 3, // flag when drawdown from peak >= this (in progress points)
+        },
+    },
 }

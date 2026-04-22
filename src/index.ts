@@ -7,6 +7,20 @@ import { getTokenAuthorities, TokenAuthorityStatus } from "./utils/handlers/toke
 import { buyToken, SniperooHandler } from "./utils/handlers/sniperooHandler";
 import { getRugCheckConfirmed } from "./utils/handlers/rugCheckHandler";
 import { playSound, sendTelegramMessage } from "./utils/notification";
+import { extractTradeEventsFromLogs } from "./utils/decoders/pumpTradeEvent";
+import { extractCreateEventsFromLogs } from "./utils/decoders/pumpCreateEvent";
+import { onTradeEvent, resolveUntrackedPolicy } from "./utils/handlers/riskProfileHandler";
+import { getRisk, initRiskDb, setMigrationOutcome, Verdict } from "./tracker/riskDb";
+import { emitCreation, emitMigration, emitSocials } from "./dashboard/events";
+import { startDashboard } from "./dashboard/server";
+import {
+    attachSocials as attachSocialsToStore,
+    deleteDev as deleteDevFromStore,
+    setCreation as setCreationInStore,
+    startPruning as startDevWalletPruning,
+    stopPruning as stopDevWalletPruning,
+} from "./utils/risk/devWalletStore";
+import { fetchSocialsQueued } from "./utils/handlers/tokenSocialsHandler";
 
 // Regional Variables
 let activeTransactions = 0;
@@ -53,7 +67,7 @@ async function processTransaction(signature: string): Promise<void> {
 
     // Send Telegram notification with token information
     const telegramMessage = `🚀 <b>Nouveau Token Détecté!</b>
-    
+
 🪙 <b>Token CA:</b> <code>${returnedMint}</code>
 📊 <b>GMGN:</b> https://gmgn.ai/sol/token/${returnedMint}
 🔗 <b>Transaction:</b> https://solscan.io/tx/${signature}
@@ -62,9 +76,68 @@ async function processTransaction(signature: string): Promise<void> {
     await sendTelegramMessage(telegramMessage);
 
     /**
-     * Perform checks based on selected level of rug check
+     * Progressive risk profile gate: if pump_risk is enabled we consult the DB row
+     * built from observed trades in the 90-98% band instead of hitting rugcheck.xyz.
      */
-    if (CHECK_MODE == "snipe") {
+    let pumpRiskGateTaken = false;
+    let migrationVerdict: Verdict | "untracked" = "untracked";
+    let migrationReason: string | null = null;
+
+    if (config.pump_risk?.enabled) {
+        pumpRiskGateTaken = true;
+        const risk = await getRisk(returnedMint);
+
+        const recordDeny = async (reason: string, verdict: Verdict | "untracked" = "deny") => {
+            migrationVerdict = verdict;
+            migrationReason = reason;
+            try { await setMigrationOutcome(returnedMint, false, null, reason); } catch { /* ignore */ }
+            emitMigration({ mint: returnedMint, verdict, reason, bought: false });
+        };
+
+        if (!risk) {
+            const policy = resolveUntrackedPolicy();
+            if (policy === "deny") {
+                const reason = "no pre-migration risk profile (untracked_policy=deny)";
+                console.log(`❌ [Process Transaction] ${reason}, skipping ${returnedMint}`);
+                await sendTelegramMessage(`🛑 <b>Deny</b> <code>${returnedMint}</code>\nReason: ${reason}`);
+                await recordDeny(reason, "untracked");
+                return;
+            }
+            if (policy === "legacy") {
+                console.log("⚠️ [Process Transaction] No risk profile, falling back to legacy rugcheck");
+                const ok = await getRugCheckConfirmed(returnedMint);
+                if (!ok) {
+                    console.log("❌ [Process Transaction] Legacy rugcheck rejected, skipping");
+                    await sendTelegramMessage(`🛑 <b>Deny (legacy)</b> <code>${returnedMint}</code>`);
+                    await recordDeny("legacy rugcheck rejected", "untracked");
+                    return;
+                }
+                migrationVerdict = "allow";
+                migrationReason = "legacy rugcheck passed (untracked policy)";
+            } else {
+                migrationVerdict = "allow";
+                migrationReason = "untracked_policy=allow";
+            }
+        } else if (risk.verdict !== "allow") {
+            const reason = risk.verdict_reason ?? risk.verdict ?? "pending";
+            console.log(`❌ [Process Transaction] risk verdict=${risk.verdict} reason=${reason}, skipping`);
+            await sendTelegramMessage(
+                `🛑 <b>Deny</b> <code>${returnedMint}</code>\n` +
+                `Verdict: ${risk.verdict}\nReason: ${reason}\n` +
+                `progress=${risk.progress?.toFixed(2)}% trades=${risk.trade_count}`
+            );
+            await recordDeny(reason, (risk.verdict ?? "pending") as Verdict);
+            return;
+        } else {
+            migrationVerdict = "allow";
+            migrationReason = risk.verdict_reason;
+            await sendTelegramMessage(
+                `✅ <b>Allow</b> <code>${returnedMint}</code>\n` +
+                `top1=${risk.top_holder_pct?.toFixed(2)}% dev_bal=${risk.dev_balance_tok?.toFixed(0)} ` +
+                `bot_conc=${risk.bot_concentration?.toFixed(2)}% trades=${risk.trade_count}`
+            );
+        }
+    } else if (CHECK_MODE == "snipe") {
         console.log(`🔎 [Process Transaction] Performing ${CHECK_MODE} check`);
         const tokenAuthorityStatus: TokenAuthorityStatus = await getTokenAuthorities(returnedMint);
         if (!tokenAuthorityStatus.isSecure) {
@@ -108,23 +181,47 @@ async function processTransaction(signature: string): Promise<void> {
     /**
      * Perform Swap Transaction
      */
+    let buyAttempted = false;
+    let buySuccess: boolean | null = null;
+    let buyError: string | null = null;
+
     if (BUY_PROVIDER === "sniperoo" && !SIM_MODE) {
         console.log("🎯 [Process Transaction] Sniping token using Sniperoo...");
+        buyAttempted = true;
         const result = await buyToken(returnedMint, BUY_AMOUNT, SELL_ENABLED, SELL_TAKE_PROFIT, SELL_STOP_LOSS);
+        buySuccess = !!result;
         if (!result) {
             console.log("❌ [Process Transaction] Token not swapped. Sniperoo failed.");
             console.log("🔁 [Process Transaction] Looking for new Liquidity Pools again\n");
-            return;
+            buyError = "sniperoo buyToken returned falsy";
+        } else {
+            if (PLAY_SOUND) playSound();
+            console.log("✅ [Process Transaction] Token swapped successfully using Sniperoo");
         }
-
-        if (PLAY_SOUND) playSound();
-        console.log("✅ [Process Transaction] Token swapped successfully using Sniperoo");
     }
 
     /**
      * Check if Simulation Mode is enabled in order to output the warning
      */
     if (SIM_MODE) console.log("⚠️ [Process Transaction] Token not swapped! Simulation Mode turned on.");
+
+    // Persist migration outcome and push to dashboard, but only for the pump_risk path.
+    if (pumpRiskGateTaken) {
+        try {
+            await setMigrationOutcome(returnedMint, buyAttempted, buySuccess, buyError);
+        } catch (err) {
+            console.error("[Process Transaction] setMigrationOutcome failed:", err instanceof Error ? err.message : err);
+        }
+        emitMigration({
+            mint: returnedMint,
+            verdict: migrationVerdict,
+            reason: migrationReason,
+            bought: buyAttempted && buySuccess === true,
+            error: buyError,
+        });
+        // Token has graduated — no need to keep its dev wallet in the live store.
+        deleteDevFromStore(returnedMint);
+    }
 }
 
 // Main function to start the application
@@ -134,6 +231,27 @@ async function main(): Promise<void> {
 
     // Load environment variables from the .env file
     const env = validateEnv();
+
+    // Initialize the token_risk DB so the first incoming trade doesn't race the schema.
+    if (config.pump_risk?.enabled) {
+        await initRiskDb();
+        console.log("🧠 [Risk] token_risk DB initialized (min_track=" +
+            config.pump_risk.min_track_progress + "%, untracked=" +
+            config.pump_risk.untracked_policy + ")");
+        // Background eviction of stale dev-wallet entries (24h TTL, 1h interval).
+        startDevWalletPruning();
+    }
+
+    // Start the dashboard HTTP server before opening WSS so connected browsers don't
+    // miss the first trades. Railway/Render inject PORT, which takes precedence.
+    if (config.dashboard?.enabled) {
+        const port = Number(process.env.PORT) || config.dashboard.port;
+        try {
+            await startDashboard(port);
+        } catch (err) {
+            console.error("📊 [Dashboard] failed to start:", err instanceof Error ? err.message : err);
+        }
+    }
 
     // Initialize SniperooHandler for monitoring positions and orders if API key is available
     let stateInterval: NodeJS.Timeout | null = null;
@@ -229,6 +347,52 @@ async function main(): Promise<void> {
             if (!Array.isArray(logs) || !signature) {
                 return;
             }
+
+            // Harvest pump.fun events from the logs. CreateEvent → register the dev
+            // wallet in the in-memory store so the eventual risk lookup at 90% is free.
+            // TradeEvent → feed the progressive risk profile. Fire-and-forget: we must
+            // not block the WSS message loop on per-trade DB writes.
+            if (config.pump_risk?.enabled) {
+                const createEvents = extractCreateEventsFromLogs(logs);
+                for (const ce of createEvents) {
+                    setCreationInStore(ce.mint, {
+                        dev: ce.user,
+                        name: ce.name,
+                        symbol: ce.symbol,
+                        uri: ce.uri,
+                        bondingCurve: ce.bondingCurve,
+                    });
+                    emitCreation({
+                        mint: ce.mint,
+                        name: ce.name,
+                        symbol: ce.symbol,
+                        uri: ce.uri,
+                        dev: ce.user,
+                        bondingCurve: ce.bondingCurve,
+                        capturedAt: Date.now(),
+                    });
+
+                    // Background fetch of the metadata JSON to extract twitter / telegram /
+                    // website. Fire-and-forget, bounded concurrency. Failure = socials stay null.
+                    if (ce.uri) {
+                        const mint = ce.mint;
+                        const uri = ce.uri;
+                        fetchSocialsQueued(uri).then((socials) => {
+                            if (!socials) return;
+                            attachSocialsToStore(mint, socials);
+                            emitSocials({ mint, ...socials });
+                        }).catch(() => { /* swallow — non-critical */ });
+                    }
+                }
+
+                const tradeEvents = extractTradeEventsFromLogs(logs);
+                for (const ev of tradeEvents) {
+                    onTradeEvent(ev).catch((err) => {
+                        console.error("[onTradeEvent] error:", err instanceof Error ? err.message : err);
+                    });
+                }
+            }
+
             // Verify if this is a new pool creation
 
             const lookfor  = SUBSCRIBE_LP.filter((pool) => pool.enabled).map((pool) => pool.instruction);
@@ -274,6 +438,8 @@ async function main(): Promise<void> {
         if (stateInterval) {
             clearInterval(stateInterval);
         }
+
+        stopDevWalletPruning();
 
         if (sniperooHandler) {
             await sniperooHandler.disconnect();

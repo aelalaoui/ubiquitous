@@ -19,4 +19,10 @@ services:
         value: https://quote-api.jup.ag/v6/quote
       - key: JUP_HTTPS_SWAP_URI
         value: https://quote-api.jup.ag/v6/swap
+      - key: DASHBOARD_USER
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: PORT
+        value: "3000"
 
